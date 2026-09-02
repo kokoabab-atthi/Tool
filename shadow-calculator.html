@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>日影計算ツール(壁→建物)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+<style>
+  :root {
+    --paper: #EDE9DD;
+    --panel: #F5F2E9;
+    --ink: #1F3350;
+    --accent: #D98E2B;
+    --danger: #B0472F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    background-image:
+      linear-gradient(rgba(31,51,80,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(31,51,80,0.07) 1px, transparent 1px);
+    background-size: 24px 24px;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+  header { border-bottom: 1px solid rgba(31,51,80,0.2); padding-bottom: 16px; margin-bottom: 32px; }
+  header .eyebrow { font-size: 12px; letter-spacing: 0.02em; color: rgba(31,51,80,0.6); margin: 0; }
+  header h1 { font-size: 22px; font-weight: 600; margin: 4px 0 0; }
+
+  section.panel {
+    border: 1px solid rgba(31,51,80,0.25);
+    background: var(--panel);
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+  h2 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .desc { font-size: 12px; color: rgba(31,51,80,0.6); margin: 0 0 20px; line-height: 1.6; }
+
+  .grid { display: grid; gap: 24px; }
+  @media (min-width: 720px) { .grid.top { grid-template-columns: 280px 1fr; } }
+
+  .field { display: block; margin-bottom: 16px; }
+  .field span { display: block; font-size: 12px; color: rgba(31,51,80,0.7); margin-bottom: 4px; }
+  .field input {
+    width: 100%;
+    border: 1px solid rgba(31,51,80,0.3);
+    background: #fff;
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .input-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
+  @media (min-width: 560px) { .input-row.two { grid-template-columns: repeat(2, 1fr); max-width: 480px; } }
+
+  button {
+    width: 100%;
+    border: 1px solid rgba(31,51,80,0.4);
+    background: transparent;
+    padding: 8px 0;
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover { background: rgba(31,51,80,0.05); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .stat { border-left: 2px solid var(--accent); padding-left: 12px; }
+  .stat .label { font-size: 12px; color: rgba(31,51,80,0.6); margin: 0; }
+  .stat .value { font-family: "SFMono-Regular", Consolas, monospace; font-size: 20px; margin: 2px 0; }
+  .stat .sub { font-size: 12px; color: rgba(31,51,80,0.5); margin: 0; }
+
+  .empty { text-align: center; padding: 60px 16px; color: rgba(31,51,80,0.6); font-size: 14px; }
+
+  svg { display: block; margin: 0 auto; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: center; font-weight: 400; font-size: 11px; color: rgba(31,51,80,0.6); border-bottom: 1px solid rgba(31,51,80,0.25); padding: 6px 4px; white-space: nowrap; }
+  thead th:first-child, thead th:nth-child(2) { text-align: left; }
+  tbody td { padding: 5px 4px; border-bottom: 1px solid rgba(31,51,80,0.1); text-align: center; }
+  tbody td:first-child, tbody td:nth-child(2) { text-align: left; }
+  .mono { font-family: "SFMono-Regular", Consolas, monospace; }
+  .tag { font-size: 10px; color: var(--accent); margin-left: 4px; }
+  .over { color: var(--danger); font-weight: 600; }
+  .ok { color: rgba(31,51,80,0.45); }
+  .slot-cell { font-family: "SFMono-Regular", Consolas, monospace; }
+  .sub-diff { font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; color: rgba(31,51,80,0.45); }
+
+  footer.note { font-size: 12px; color: rgba(31,51,80,0.5); line-height: 1.7; margin-top: 8px; }
+
+  .distance-explain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    border: 1px dashed rgba(31,51,80,0.3);
+    background: #fff;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  .distance-explain .eq-part { font-family: "SFMono-Regular", Consolas, monospace; }
+  .distance-explain .eq-op { color: rgba(31,51,80,0.4); }
+  .distance-explain .eq-total { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">SHADOW CALCULATOR / 日影計算</p>
+    <h1>壁の影 — 建物にかかる高さを計算する</h1>
+  </header>
+
+  <div class="grid top">
+    <section class="panel">
+      <div class="field"><span>壁の高さ (m)</span><input id="wallHeightM" type="number" min="0" step="0.1" value="1.8" /></div>
+      <div class="field"><span>壁と建物の間の幅 (m)</span><input id="gapM" type="number" min="0" step="0.1" value="0.9" /></div>
+      <div class="field"><span>日時</span><input id="dateStr" type="datetime-local" /></div>
+      <div class="field"><span>緯度</span><input id="lat" type="number" step="0.0001" value="35.0" /></div>
+      <div class="field"><span>経度</span><input id="lng" type="number" step="0.0001" value="139.0" /></div>
+      <button id="useLocationBtn">現在地を使う</button>
+    </section>
+
+    <section class="panel">
+      <div id="resultArea"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>月別 影の高さの判定</h2>
+    <p class="desc">
+      上で入力した壁の高さ・壁と建物の間の幅をもとに、各月22日・8時から18時までを2時間単位に区切って、
+      それぞれの時間帯で「建物にかかる影の最大の高さ」を12か月分まとめて計算します。冬至(12月)が最も高くなるのが一般的です。
+    </p>
+
+    <div class="input-row two">
+      <div class="field"><span>許容する影の高さ (m)</span><input id="thresholdHeightM" type="number" min="0" step="0.1" value="0.3" /></div>
+      <div class="field"><span>対象年</span><input id="targetYear" type="number" value="2026" /></div>
+    </div>
+
+    <div id="monthlyArea"></div>
+
+    <footer class="note">
+      壁と建物が太陽の影の伸びる向きに一直線に並んでいる前提の簡易計算です(方位のズレは考慮していません)。
+      「建物にかかる影の高さ」は 壁の高さ − (壁と建物の間の幅 × tan(太陽高度)) で算出しています。
+      実際の日影規制とは異なるため、法規確認には正式な日影図の作成・行政への確認が必要です。太陽位置の計算には SunCalc を使用しています。
+    </footer>
+  </section>
+
+  <section class="panel">
+    <h2>月別 影の長さ(建物からその先の地点まで)</h2>
+    <p class="desc">
+      壁が作る影が、建物からさらに先へどれだけ伸びるかを計算します。地面に沿った影の長さ(壁の高さ ÷ tan(太陽高度))が、
+      指定した地点(建物から指定距離)まで届いているかを、2時間単位の時間帯ごとに12か月分まとめて判定します。
+    </p>
+
+    <div class="input-row two">
+      <div class="field">
+        <span>建物から先までの距離 (m)</span>
+        <input id="extraDistanceM" type="number" min="0" step="0.1" value="2.5" />
+      </div>
+    </div>
+
+    <div id="distanceExplain" class="distance-explain"></div>
+
+    <div id="lengthArea"></div>
+
+    <footer class="note">
+      「影の長さ」は壁の底面からの地面沿いの長さです。太陽高度が低いほど非常に長くなるため、999mを超える場合は
+      「999m+」と表示しています。判定は、壁からその地点(壁と建物の間の幅 + 建物から先までの距離)までの距離に届いているかどうかです。
+    </footer>
+  </section>
+</div>
+
+<script>
+// ---------------------------------------------------------------------
+// 計算ロジック
+// ---------------------------------------------------------------------
+function normalizeDeg(deg) { return ((deg % 360) + 360) % 360; }
+function round1(n) { return Math.round(n * 10) / 10; }
+
+function getSunAngles(date, lat, lng) {
+  const pos = SunCalc.getPosition(date, lat, lng);
+  const altitudeDeg = (pos.altitude * 180) / Math.PI;
+  const azimuthDeg = normalizeDeg((pos.azimuth * 180) / Math.PI + 180);
+  return { altitudeRad: pos.altitude, altitudeDeg, azimuthDeg };
+}
+
+function calcWallShadowOnBuilding({ wallHeightM, gapM, date, lat, lng }) {
+  const { altitudeRad, altitudeDeg, azimuthDeg } = getSunAngles(date, lat, lng);
+  const isDaytime = altitudeDeg > 0;
+
+  let shadowHeightM = 0;
+  if (isDaytime) {
+    const raw = wallHeightM - gapM * Math.tan(altitudeRad);
+    shadowHeightM = Math.max(0, Math.min(wallHeightM, raw));
+  }
+
+  return {
+    sunAltitudeDeg: round1(altitudeDeg),
+    sunAzimuthDeg: round1(azimuthDeg),
+    shadowHeightM: round1(shadowHeightM),
+    reachesBuilding: shadowHeightM > 0,
+    isDaytime,
+  };
+}
+
+// 8時から18時までを2時間単位に区切ったスロット
+const TIME_SLOTS = [
+  { label: "8-10", startHour: 8, endHour: 10 },
+  { label: "10-12", startHour: 10, endHour: 12 },
+  { label: "12-14", startHour: 12, endHour: 14 },
+  { label: "14-16", startHour: 14, endHour: 16 },
+  { label: "16-18", startHour: 16, endHour: 18 },
+];
+
+/** 1つの時間帯(スロット)内での最大の影の高さを求める */
+function calcSlotMaxHeight({ wallHeightM, gapM, lat, lng, year, month, day, startHour, endHour, stepMinutes = 10 }) {
+  let maxHeight = 0;
+  const startMinutes = startHour * 60;
+  const endMinutes = endHour * 60;
+  for (let m = startMinutes; m <= endMinutes; m += stepMinutes) {
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    const time = new Date(year, month - 1, day, hh, mm, 0);
+    const r = calcWallShadowOnBuilding({ wallHeightM, gapM, date: time, lat, lng });
+    if (r.shadowHeightM > maxHeight) maxHeight = r.shadowHeightM;
+  }
+  return round1(maxHeight);
+}
+
+/** 1〜12月それぞれの代表日(22日)について、時間帯別の最大の影の高さをまとめて計算する */
+function calcMonthlySlotShadow({ wallHeightM, gapM, lat, lng }, year, representativeDay) {
+  representativeDay = representativeDay || 22;
+  const results = [];
+  for (let month = 1; month <= 12; month++) {
+    const slotHeights = TIME_SLOTS.map((slot) =>
+      calcSlotMaxHeight({
+        wallHeightM, gapM, lat, lng, year, month, day: representativeDay,
+        startHour: slot.startHour, endHour: slot.endHour,
+      })
+    );
+    const dayMax = round1(Math.max(...slotHeights));
+    results.push({
+      month,
+      representativeDate: new Date(year, month - 1, representativeDay),
+      slotHeights,
+      dayMax,
+    });
+  }
+  return results;
+}
+
+/** 1つの時間帯(スロット)内での最大の影の長さ(地面沿い)を求める。太陽が出ていなければnull */
+function calcSlotMaxLength({ wallHeightM, lat, lng, year, month, day, startHour, endHour, stepMinutes = 10 }) {
+  let maxLength = null;
+  const startMinutes = startHour * 60;
+  const endMinutes = endHour * 60;
+  for (let m = startMinutes; m <= endMinutes; m += stepMinutes) {
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    const time = new Date(year, month - 1, day, hh, mm, 0);
+    const { altitudeDeg, altitudeRad } = getSunAngles(time, lat, lng);
+    if (altitudeDeg > 0) {
+      const length = wallHeightM / Math.tan(altitudeRad);
+      if (maxLength === null || length > maxLength) maxLength = length;
+    }
+  }
+  return maxLength === null ? null : round1(maxLength);
+}
+
+/** 1〜12月それぞれの代表日(22日)について、時間帯別の影の長さをまとめて計算する */
+function calcMonthlySlotLength({ wallHeightM, lat, lng }, year, representativeDay) {
+  representativeDay = representativeDay || 22;
+  const results = [];
+  for (let month = 1; month <= 12; month++) {
+    const slotLengths = TIME_SLOTS.map((slot) =>
+      calcSlotMaxLength({
+        wallHeightM, lat, lng, year, month, day: representativeDay,
+        startHour: slot.startHour, endHour: slot.endHour,
+      })
+    );
+    const valid = slotLengths.filter((v) => v !== null);
+    const dayMax = valid.length > 0 ? round1(Math.max(...valid)) : null;
+    results.push({
+      month,
+      representativeDate: new Date(year, month - 1, representativeDay),
+      slotLengths,
+      dayMax,
+    });
+  }
+  return results;
+}
+
+function formatLength(v) {
+  if (v === null) return "―";
+  if (v > 999) return "999m+";
+  return `${v} m`;
+}
+
+function formatDiff(v, thresholdHeightM) {
+  if (v === null) return "―";
+  const diff = round1(v - thresholdHeightM);
+  const sign = diff > 0 ? "+" : "";
+  return `${sign}${diff}m`;
+}
+
+
+const $ = (id) => document.getElementById(id);
+
+function toDatetimeLocalValue(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+$("dateStr").value = toDatetimeLocalValue(new Date());
+$("targetYear").value = new Date().getFullYear();
+
+function renderWallDiagram(wallHeightM, gapM, shadowHeightM) {
+  const width = 280, height = 200;
+  const padding = { left: 30, right: 20, top: 20, bottom: 30 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const buildingDisplayHeightM = Math.max(wallHeightM * 1.4, shadowHeightM * 1.3, 3);
+  const maxH = Math.max(wallHeightM, buildingDisplayHeightM);
+  const maxW = Math.max(gapM, 1) * 1.2;
+
+  const xScale = plotW / maxW;
+  const yScale = plotH / maxH;
+  const groundY = padding.top + plotH;
+
+  const wallX = padding.left;
+  const wallTopY = groundY - wallHeightM * yScale;
+  const wallW = Math.max(6, plotW * 0.03);
+
+  const buildingX = padding.left + gapM * xScale;
+  const buildingW = Math.max(10, plotW * 0.12);
+  const buildingTopY = groundY - buildingDisplayHeightM * yScale;
+  const shadowTopY = groundY - shadowHeightM * yScale;
+
+  return `
+  <svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:320px">
+    <line x1="${padding.left - 10}" y1="${groundY}" x2="${width - padding.right + 10}" y2="${groundY}" stroke="#1F3350" stroke-opacity="0.3" />
+    <rect x="${wallX}" y="${wallTopY}" width="${wallW}" height="${groundY - wallTopY}" fill="#1F3350" />
+    <text x="${wallX}" y="${wallTopY - 6}" font-size="10" fill="#1F3350" fill-opacity="0.7">壁 ${wallHeightM}m</text>
+    <rect x="${buildingX}" y="${buildingTopY}" width="${buildingW}" height="${groundY - buildingTopY}" fill="none" stroke="#1F3350" stroke-opacity="0.5" />
+    ${shadowHeightM > 0 ? `<rect x="${buildingX}" y="${shadowTopY}" width="${buildingW}" height="${groundY - shadowTopY}" fill="#D98E2B" fill-opacity="0.6" />` : ""}
+    <line x1="${wallX + wallW}" y1="${wallTopY}" x2="${buildingX}" y2="${shadowHeightM > 0 ? shadowTopY : groundY}" stroke="#D98E2B" stroke-width="1.5" stroke-dasharray="4,3" />
+    <text x="${buildingX}" y="${buildingTopY - 6}" font-size="10" fill="#1F3350" fill-opacity="0.7">建物</text>
+    <text x="${(wallX + buildingX) / 2}" y="${groundY + 16}" text-anchor="middle" font-size="9" fill="#1F3350" fill-opacity="0.6">幅 ${gapM}m</text>
+  </svg>`;
+}
+
+function renderResult() {
+  const wallHeightM = Number($("wallHeightM").value);
+  const gapM = Number($("gapM").value);
+  const lat = Number($("lat").value);
+  const lng = Number($("lng").value);
+  const date = new Date($("dateStr").value);
+  const area = $("resultArea");
+
+  if (isNaN(date.getTime())) { area.innerHTML = `<div class="empty">日時を入力してください。</div>`; return; }
+
+  const result = calcWallShadowOnBuilding({ wallHeightM, gapM, date, lat, lng });
+
+  if (!result.isDaytime) {
+    area.innerHTML = `<div class="empty">この日時、太陽は地平線の下です。<br><span style="font-size:12px">日中の時刻を選んでください。</span></div>`;
+    return;
+  }
+
+  area.innerHTML = `
+    <div class="stats">
+      <div class="stat"><p class="label">建物にかかる影の高さ</p><p class="value">${result.shadowHeightM} m</p><p class="sub">${result.reachesBuilding ? "影が届いています" : "届いていません"}</p></div>
+      <div class="stat"><p class="label">太陽高度</p><p class="value">${result.sunAltitudeDeg}°</p></div>
+      <div class="stat"><p class="label">太陽方位</p><p class="value">${result.sunAzimuthDeg}°</p></div>
+    </div>
+    ${renderWallDiagram(wallHeightM, gapM, result.shadowHeightM)}
+  `;
+}
+
+function renderMonthly() {
+  const wallHeightM = Number($("wallHeightM").value);
+  const gapM = Number($("gapM").value);
+  const lat = Number($("lat").value);
+  const lng = Number($("lng").value);
+  const thresholdHeightM = Number($("thresholdHeightM").value);
+  const targetYear = Number($("targetYear").value);
+  const area = $("monthlyArea");
+
+  const results = calcMonthlySlotShadow({ wallHeightM, gapM, lat, lng }, targetYear);
+
+  const headerCells = TIME_SLOTS.map((s) => `<th>${s.label}</th>`).join("");
+
+  let rows = "";
+  results.forEach((r) => {
+    const tag = r.month === 12 ? `<span class="tag">冬至</span>` : "";
+    const isOver = r.dayMax > thresholdHeightM;
+    const slotCells = r.slotHeights
+      .map((h) => `<td class="slot-cell ${h > thresholdHeightM ? "over" : "ok"}">${h}</td>`)
+      .join("");
+    rows += `
+      <tr>
+        <td class="mono">${r.month}月${tag}</td>
+        <td style="color:rgba(31,51,80,0.6)">${r.representativeDate.getMonth() + 1}/${r.representativeDate.getDate()}</td>
+        ${slotCells}
+        <td class="mono ${isOver ? "over" : "ok"}">${r.dayMax} m</td>
+        <td>${isOver ? '<span class="over">超過</span>' : '<span class="ok">範囲内</span>'}</td>
+      </tr>`;
+  });
+
+  area.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>月</th>
+          <th>代表日</th>
+          ${headerCells}
+          <th>1日の最大</th>
+          <th>判定</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="font-size:11px;color:rgba(31,51,80,0.5);margin-top:10px">
+      各セルは、その2時間の時間帯のうちで最も高くなった「建物にかかる影の高さ(m)」です。許容 ${thresholdHeightM}m を超えるセルは赤字で表示しています。
+    </p>
+  `;
+}
+
+function renderLength() {
+  const wallHeightM = Number($("wallHeightM").value);
+  const gapM = Number($("gapM").value);
+  const lat = Number($("lat").value);
+  const lng = Number($("lng").value);
+  const extraDistanceM = Number($("extraDistanceM").value);
+  const targetYear = Number($("targetYear").value);
+  const thresholdHeightM = Number($("thresholdHeightM").value);
+  const area = $("lengthArea");
+
+  const targetDistance = gapM + extraDistanceM;
+
+  $("distanceExplain").innerHTML = `
+    表の「${round1(targetDistance)}m地点」は、壁の底面から測った距離です:
+    <span class="eq-part">壁と建物の間の幅 ${round1(gapM)}m</span>
+    <span class="eq-op">＋</span>
+    <span class="eq-part">建物から先までの距離 ${round1(extraDistanceM)}m</span>
+    <span class="eq-op">＝</span>
+    <span class="eq-total">${round1(targetDistance)}m</span>
+  `;
+
+  const results = calcMonthlySlotLength({ wallHeightM, lat, lng }, targetYear);
+
+  const headerCells = TIME_SLOTS.map((s) => `<th>${s.label}</th>`).join("");
+
+  const cellHtml = (v) => {
+    const cellReaches = v !== null && v >= targetDistance;
+    return `<td class="slot-cell ${cellReaches ? "over" : "ok"}">
+      ${formatLength(v)}<br/><span class="sub-diff">(差 ${formatDiff(v, thresholdHeightM)})</span>
+    </td>`;
+  };
+
+  let rows = "";
+  results.forEach((r) => {
+    const tag = r.month === 12 ? `<span class="tag">冬至</span>` : "";
+    const reaches = r.dayMax !== null && r.dayMax >= targetDistance;
+    const slotCells = r.slotLengths.map(cellHtml).join("");
+    rows += `
+      <tr>
+        <td class="mono">${r.month}月${tag}</td>
+        <td style="color:rgba(31,51,80,0.6)">${r.representativeDate.getMonth() + 1}/${r.representativeDate.getDate()}</td>
+        ${slotCells}
+        <td class="mono ${reaches ? "over" : "ok"}">
+          ${formatLength(r.dayMax)}<br/><span class="sub-diff">(差 ${formatDiff(r.dayMax, thresholdHeightM)})</span>
+        </td>
+        <td>${reaches ? '<span class="over">届く</span>' : '<span class="ok">届かない</span>'}</td>
+      </tr>`;
+  });
+
+  area.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>月</th>
+          <th>代表日</th>
+          ${headerCells}
+          <th>1日の最大</th>
+          <th>${targetDistance}m地点</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="font-size:11px;color:rgba(31,51,80,0.5);margin-top:10px">
+      壁から ${targetDistance}m(壁と建物の間 ${gapM}m ＋ 建物から先 ${extraDistanceM}m)の地点まで影が届いているセルを赤字で表示しています。
+      「差」は各セルの影の長さから、許容する影の高さ(${thresholdHeightM}m)を引いた値です。
+    </p>
+  `;
+}
+
+function renderAll() { renderResult(); renderMonthly(); renderLength(); }
+
+["wallHeightM", "gapM", "dateStr", "lat", "lng", "thresholdHeightM", "targetYear", "extraDistanceM"]
+  .forEach((id) => $(id).addEventListener("input", renderAll));
+
+$("useLocationBtn").addEventListener("click", () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition((pos) => {
+    $("lat").value = Math.round(pos.coords.latitude * 10000) / 10000;
+    $("lng").value = Math.round(pos.coords.longitude * 10000) / 10000;
+    renderAll();
+  });
+});
+
+renderAll();
+</script>
+</body>
+</html>
